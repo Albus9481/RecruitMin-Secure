@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>RecruitMin Web 2.2</title>
+  <style>
+    body { font-family: sans-serif; max-width: 700px; margin: auto; padding: 2em; }
+    input, button { width: 100%; padding: 10px; margin: 10px 0; }
+    .link-list a { display: block; margin: 5px 0; word-break: break-word; text-decoration: none; }
+    .link-list a.used { color: gray; pointer-events: none; text-decoration: line-through; }
+    .timestamp { font-size: 0.85em; color: #666; margin-left: 10px; }
+    .hidden { display: none; }
+    .info { margin-top: 10px; font-style: italic; color: green; }
+  </style>
+</head>
+<body>
+  <h1>RecruitMin Web 2.1</h1>
+  <p style="color: red; font-weight: bold;">⚠️ Notice: There is an audible timer sound for each batch, which will play when another batch can be sent.</p>
+  <p>Only authorized recruiters for the <strong>Empire of Great Britain</strong> may use this tool.</p>
+
+  <label>Your Nation Name (User-Agent)</label>
+  <input type="text" id="userAgent" placeholder="e.g. britannia_primus">
+
+  <label>Telegram ID</label>
+  <input type="text" id="telegramId" placeholder="e.g. 36306328">
+
+  <label>Recruitment Template (Sends to Clipboard)</label>
+  <input type="text" id="templateCode" placeholder="e.g. %TEMPLATE-36306328%">
+  
+  <label>Telegram Time Interval Notfication (Seconds)</label>
+  <input type="text" id="time1" placeholder="e.g. 90">
+
+
+  <button onclick="validateUser()">Start Recruiting</button>
+
+  <div id="recruitControls" class="hidden">
+    <button onclick="generateLinks()">Generate Links</button>
+    <button onclick="copyLinks()">Copy All Links</button>
+    <button onclick="downloadLinks()">Download Links (.txt)</button>
+
+    <h3>Links:</h3>
+    <div id="linkList" class="link-list"></div>
+    <div id="noBatchesMessage" class="info hidden">✅ All available new nations have already been recruited.</div>
+  </div>
+
+  <script>
+    let allowedRecruiters = [];
+
+    window.onload = function() {
+      const savedUA = localStorage.getItem("userAgent");
+      const savedID = localStorage.getItem("telegramId");
+      const savedTemplate = localStorage.getItem("templateCode");
+      if (savedUA) document.getElementById("userAgent").value = savedUA;
+      if (savedID) document.getElementById("telegramId").value = savedID;
+      if (savedTemplate) document.getElementById("templateCode").value = savedTemplate;
+    };
+
+async function fetchRecruiterList() {
+  const url = 'https://gist.githubusercontent.com/Albus9481/172b64ba358bd41ab36baf2216df15d1/raw/recruiters.txt?v=' + Date.now();
+
+  try {
+    // console.log(data); // Debug: output recruiter list
+    const response = await fetch(url);
+    const text = await response.text();
+    allowedRecruiters = text.trim().split("\n").map(r => r.trim().toLowerCase());
+  } catch (err) {
+    alert("Failed to fetch recruiter list.");
+  }
+}
+
+    async function validateUser() {
+      await fetchRecruiterList();
+      const ua = document.getElementById("userAgent").value.trim().toLowerCase();
+      const tid = document.getElementById("telegramId").value.trim();
+      const template = document.getElementById("templateCode").value.trim();
+
+      if (!ua || !tid || !template) return alert("Please enter your Nation Name, Telegram ID, and Template Code.");
+
+      if (!allowedRecruiters.includes(ua)) {
+        alert("You are not an approved recruiter for the Empire of Great Britain.");
+        return;
+      }
+
+      localStorage.setItem("userAgent", ua);
+      localStorage.setItem("telegramId", tid);
+      localStorage.setItem("templateCode", template);
+      document.getElementById("recruitControls").classList.remove("hidden");
+    }
+
+    async function fetchNewNations(userAgent) {
+      try {
+        const response = await fetch("https://www.nationstates.net/cgi-bin/api.cgi?q=newnations", {
+        headers: { "User-Agent": userAgent }
+        });
+        const text = await response.text();
+        return text.trim().split(",").map(n => n.trim().toLowerCase()).filter(Boolean);
+      } catch (error) {
+        alert("Failed to fetch nations: " + error);
+        return [];
+      }
+    }
+
+    function chunkArray(arr, size) {
+      const chunks = [];
+      for (let i = 0; i < arr.length; i += size) {
+        const chunk = arr.slice(i, i + size);
+        if (chunk.length) chunks.push(chunk);
+      }
+      return chunks;
+    }
+
+    function getSentNationSet(userAgent) {
+      const key = "sentNations_" + userAgent.toLowerCase();
+      const stored = localStorage.getItem(key);
+      return stored ? new Set(JSON.parse(stored).map(n => n.trim().toLowerCase())) : new Set();
+    }
+
+    function saveSentNationSet(userAgent, nationSet) {
+      const key = "sentNations_" + userAgent.toLowerCase();
+      localStorage.setItem(key, JSON.stringify([...nationSet].map(n => n.trim().toLowerCase())));
+    }
+
+    /* Fixing beep sound issue */
+    function playBeep() {
+      const beepSound = new Audio("https://res.cloudinary.com/djpleql36/video/upload/v1746291178/notification-sound-3-262896_tmzljf.mp3");
+      beepSound.currentTime = 0; // Reset audio to start
+      beepSound.play().catch(error => {
+        console.error("Beep sound failed:", error);
+        alert("Beep sound failed to play. Please check your browser's audio settings.");
+      });
+    }
+
+    async function generateLinks() {
+      const userAgent = localStorage.getItem("userAgent").toLowerCase();
+      const telegramId = localStorage.getItem("telegramId");
+      const templateCode = localStorage.getItem("templateCode");
+      const sentNations = getSentNationSet(userAgent);
+      const allNations = await fetchNewNations(userAgent);
+      const freshNations = allNations.filter(n => !sentNations.has(n));
+
+      const groups = chunkArray(freshNations, 8);
+      const listDiv = document.getElementById("linkList");
+      const messageDiv = document.getElementById("noBatchesMessage");
+
+      listDiv.innerHTML = "";
+      messageDiv.classList.toggle("hidden", groups.length > 0);
+
+      groups.forEach((group, i) => {
+        const link = document.createElement("a");
+        const nationsStr = group.join(",");
+        link.href = `https://www.nationstates.net/page=compose_telegram?tgid=${telegramId}&recruitregion=1&tgto=${encodeURIComponent(nationsStr)}`;
+        link.textContent = `Batch ${i + 1}`;
+        link.target = "_blank";
+        link.onclick = () => {
+          group.forEach(n => sentNations.add(n));
+          saveSentNationSet(userAgent, sentNations);
+          link.classList.add("used");
+          link.innerHTML += `<span class='timestamp'> (Sent: ${new Date().toLocaleString()})</span>`;
+
+            // Beep timer using user-specified seconds from "time1"
+            const seconds = parseInt(document.getElementById("time1").value, 10) || 0;
+            if (seconds > 0) setTimeout(playBeep, seconds * 1000);
+
+          // Automatically copy the recruitment template
+          navigator.clipboard.writeText(templateCode);
+        };
+        listDiv.appendChild(link);
+      });
+
+      listDiv.dataset.links = [...listDiv.querySelectorAll("a")].map(a => a.href).join("\n");
+    }
+  </script>
+
+  <button onclick="resetSentNations()" style="background: #fdd; color: #900; margin-top: 15px; width: auto; padding: 4px 10px; font-size: 0.9em;">Reset Sent Nations Cache</button>
+  <script>
+    function resetSentNations() {
+      const userAgent = localStorage.getItem("userAgent");
+      if (!userAgent) {
+        alert("No Nation Name found in local storage.");
+        return;
+      }
+      const key = "sentNations_" + userAgent.toLowerCase();
+      localStorage.removeItem(key);
+      alert("Sent nations cache has been reset.");
+      document.getElementById("linkList").innerHTML = "";
+      document.getElementById("noBatchesMessage").classList.add("hidden");
+    }
+  </script>
+
+  <footer style="margin-top: 30px; font-style: italic; text-align: center; color: gray;">
+    Base code created by Josi.
+  </footer>
+</body>
+</html>
